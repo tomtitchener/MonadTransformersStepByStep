@@ -79,9 +79,7 @@ parseExpStr :: String -> Exp
 parseExpStr str = either (error . show) id $ parse parseExp str str
 
 main :: IO ()
-main = do
-  args <- getArgs
-  mapM_ (putStrLn . show . runEval Map.empty 0 . eval . parseExpStr) args
+main = getArgs >>= mapM_ (print . runEval Map.empty 0 . eval . parseExpStr)
 
 {--
 bash-3.2$ MonadTransformersStepByStep "Plus (Lit 12) (App (Abs x (Var x)) (Plus (Lit 4) (Lit 2)))"

@@ -12,6 +12,8 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.Maybe
 import qualified Data.Map as Map
+import System.Environment
+import Text.ParserCombinators.Parsec
 
 type Name = String
 
@@ -39,19 +41,49 @@ evalApp :: (Value, Value) -> Eval Value
 evalApp (FunVal name body, v2) = local (Map.insert name v2) (eval body)
 evalApp (v1, v2)               = throwError ("type error in application of value " ++ show v1 ++ " to value " ++ show v2)
 
+evalVar :: Name -> Env -> Eval Value
+evalVar name env = maybe (throwError ("unbound variable: " ++ name)) return (Map.lookup name env)
+
 eval :: Exp -> Eval Value
 eval (Lit i)      = tick >> return (IntVal i)
-eval (Var n)      = tick >> tell [n] >> ask >>= \env -> maybe (throwError ("unbound variable: " ++ n)) return (Map.lookup n env)
-eval (Abs n e)    = tick >> return (FunVal n e)
+eval (Abs name e) = tick >> return (FunVal name e)
+eval (Var name)   = tick >> tell [name] >> ask >>= evalVar name
 eval (Plus e1 e2) = tick >> eval e1 >>= \v1-> eval e2 >>= \v2 -> evalPlus (v1, v2)
 eval (App e1 e2)  = tick >> eval e1 >>= \v1-> eval e2 >>= \v2 -> evalApp (v1, v2)
 
-exampleExp = Lit 12 `Plus` App (Abs "x" (Var "x")) (Lit 4 `Plus` Lit 2)
+parseLit :: GenParser Char st Exp
+parseLit = string "Lit" >> spaces >> many1 digit >>= \i -> return $ Lit (read i::Integer)
 
-{--
-λ: runEval Map.empty 0 (eval exampleExp)
-((Right (IntVal 18),["x"]),8)
---}
+parseVar :: GenParser Char st Exp
+parseVar = string "Var" >> spaces >> many1 letter >>= \name -> return $ Var name
+
+parsePlus :: GenParser Char st Exp
+parsePlus = string "Plus" >> spaces >> parseExp >>= \exp1 -> parseExp >>= \exp2 -> return $ Plus exp1 exp2
+
+parseAbs :: GenParser Char st Exp
+parseAbs = string "Abs" >> spaces >> many1 letter >>= \name -> parseExp >>= \exp -> return $ Abs name exp
+
+parseApp :: GenParser Char st Exp
+parseApp = string "App" >> spaces >> parseExp >>= \exp1 -> parseExp >>= \exp2 -> return $ App exp1 exp2
+
+parseBareExp :: GenParser Char st Exp
+parseBareExp = parseLit <|> parseVar <|> parsePlus <|> try parseAbs <|> parseApp
+
+parseParenthesizedExp :: GenParser Char st Exp
+parseParenthesizedExp = char '(' >> parseExp >>= \e -> char ')' >> return e
+
+parseExp :: GenParser Char st Exp
+parseExp = (spaces >> parseParenthesizedExp) <|> (spaces >> parseBareExp)
+
+parseExpStr :: String -> Exp
+parseExpStr str = either (error . show) id $ parse parseExp str str
 
 main :: IO ()
-main = undefined
+main = do
+  args <- getArgs
+  mapM_ (putStrLn . show . runEval Map.empty 0 . eval . parseExpStr) args
+
+{--
+bash-3.2$ MonadTransformersStepByStep "Plus (Lit 12) (App (Abs x (Var x)) (Plus (Lit 4) (Lit 2)))"
+((Right (IntVal 18),["x"]),8)
+--}

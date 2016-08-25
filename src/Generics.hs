@@ -5,16 +5,16 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveAnyClass #-}
-
+{-# LANGUAGE DefaultSignatures #-}
 {--
 http://dev.stephendiehl.com/hask/#generic-parsing
 --}
 
 module Main where
 
-import Text.Parsec            ((<|>), string, try, many1, digit, char)
+import Text.Parsec            ((<|>), string, try, many1, digit, char, letter)
 import Text.Parsec.Text.Lazy  (Parser)
-import Control.Applicative    ((<*), (*>), (<*>), (<$>))
+import Control.Applicative    ((<*), (*>), (<*>), (<$>), pure)
 import GHC.Generics
 
 -- Parser is defined by Text.Parsec.Text.Lazy as type Parser = Parsec Text ().
@@ -44,16 +44,13 @@ import GHC.Generics
 -- Text.Parsec and instead hand-rolls his own Parser type with default
 -- implementations for anything with a Read instance.  One hitch is
 -- his parser is explicilty for his "Route" type only.
--- 
+--
 class GParse f where
   gParse :: Parser (f a)
 
 -- Nullary constructors
 instance GParse U1 where
   gParse = return U1
-
---instance GParse (Rep f) => GParse (K1 R f) where
---  gParse = undefined
 
 integer :: Parser Integer
 integer = rd <$> (plus <|> minus <|> number)
@@ -62,17 +59,58 @@ integer = rd <$> (plus <|> minus <|> number)
           minus  = (:) <$> char '-' <*> number
           number = many1 digit
 
-instance GParse (K1 R Integer) where
-  gParse = undefined
+-- start guessing
+          
+-- instance GParse (K1 R Integer) where
+--   gParse = fmap K1 integer
 
-instance GParse (K1 R String) where
-  gParse = undefined
+-- instance GParse (K1 R String) where
+--   gParse = fmap K1 (many1 letter)
 
-instance GParse (K1 R Exp) where
-  gParse = undefined
+instance (Parse a) => GParse (K1 R a) where
+  gParse = fmap K1 parse
+  
+--   gParse = id
+--     Couldn't match type ‘a0 -> a0’
+--                    with ‘Text.Parsec.Prim.ParsecT
+--                            text-1.2.2.1:Data.Text.Internal.Lazy.Text
+--                            ()
+--                            Data.Functor.Identity.Identity
+--                            (K1 R Exp a)’
+--     Expected type: Parser (K1 R Exp a)
+--       Actual type: a0 -> a0
+--     Relevant bindings include
+--       gParse :: Parser (K1 R Exp a) (bound at src/Generics.hs:71:3)
+--     Probable cause: ‘id’ is applied to too few arguments
+--     In the expression: id
+--     In an equation for ‘gParse’: gParse = id
+-- Failed, modules loaded: none.
+  
+--gParse = fmap K1 gParse
+--    Couldn't match type ‘f0 a0’ with ‘Exp’
+--    Expected type: Text.Parsec.Prim.ParsecT
+--                     text-1.2.2.1:Data.Text.Internal.Lazy.Text
+--                     ()
+--                     Data.Functor.Identity.Identity
+--                     Exp
+--      Actual type: Parser (f0 a0)
+--    In the second argument of ‘fmap’, namely ‘gParse’
+--    In the expression: fmap K1 gParse
+
+
+-- gParse = fmap M1 gParse
+--   Couldn't match type ‘M1 i0 c0 f0 p0’ with ‘K1 R Exp a’
+--   Expected type: f0 p0 -> K1 R Exp a
+--     Actual type: f0 p0 -> M1 i0 c0 f0 p0
+--   Relevant bindings include
+--     gParse :: Parser (K1 R Exp a) (bound at src/Generics.hs:71:3)
+--   In the first argument of ‘fmap’, namely ‘M1’
+--   In the expression: fmap M1 gParse
 
 instance (GParse f, Selector s) => GParse (M1 S s f) where
-  gParse = undefined
+  gParse = fmap M1 gParse
+  
+-- stop guessing
 
 -- Type synonym metadata for constructors
 instance (GParse f, Constructor c) => GParse (C1 c f) where
@@ -140,14 +178,31 @@ Rep Exp :: * -> *
 gparse :: (Generic g, GParse (Rep g)) => Parser g
 gparse = fmap to gParse
 
+class Parse a where
+  parse :: Parser a
+  default parse :: (Generic a, GParse (Rep a)) => Parser a
+  parse = gparse
+
+instance Parse Integer where
+   parse = integer
+
+instance Parse String where
+   parse = many1 letter
+
+instance Parse Exp
+
+instance Parse Scientist
+   
+instance Parse Musician
+
 scientist :: Parser Scientist
-scientist = gparse
+scientist = parse
 
 musician :: Parser Musician
-musician = gparse
+musician = parse
 
-exp :: Parser Exp
-exp = gparse
+expr :: Parser Exp
+expr = parse
 
 {--
 /Users/tom_titchener/Documents/Dev/Haskell/MonadTransformersStepByStep/src/Generics.hs:96:7:
@@ -160,6 +215,7 @@ exp = gparse
 
 {--
 λ: :set -XOverloadedStrings
+λ: :m +Text.Parsec
 λ: parseTest musician "Bach"
 Bach
 λ: parseTest scientist "Newton"

@@ -12,6 +12,8 @@ http://dev.stephendiehl.com/hask/#generic-parsing
 
 module Main where
 
+import Debug.Trace
+
 import Text.Parsec            ((<|>), string, try, many1, digit, char, letter)
 import Text.Parsec.Text.Lazy  (Parser)
 import Control.Applicative    ((<*), (*>), (<*>), (<$>), pure)
@@ -48,114 +50,92 @@ import GHC.Generics
 class GParse f where
   gParse :: Parser (f a)
 
+-- start guessing
+instance (Parse a) => GParse (K1 R a) where
+  gParse = trace "GParse (K1 R a)" $ fmap K1 parse
+
+-- Almost certainly something goes wrong here.
+-- 
+instance (GParse f, Selector s) => GParse (M1 S s f) where
+  gParse = trace "GParse (M1 S  s f)" $  fmap M1 gParse
+
+-- stop guessing
+
+-- Type synonym metadata for constructors
+-- Could this be where things go wrong?
+-- In Diehl's types, the constructors take no arguments.
+-- In the Exp type they do.  Can I find an example of
+-- Generic code that matches on (C1 c f) to see how it
+-- treats constructors with values?  Does this recur?
+-- We do get this far, because if I just put an error
+-- in the execution line I hit it right away.  But
+-- testing for conIsRecord doesn't do anything, it's
+-- never true.
+-- Note that in comparison of traces between parsing
+-- Diehl's examples vs. parsing an Exp, there's always
+-- a "GParse U1" trace that shows us bottoming out for
+-- Scientist or Musician, but never for Exp.
+instance (GParse f, Constructor c) => GParse (C1 c f) where
+  gParse =
+    let con = trace "GParse (C1 c f)" $ conName (undefined :: t c f a) in
+      (fmap M1 gParse) <* (trace $ "con name " ++ con ++ "!") string con
+
+-- Constructor names
+instance GParse f => GParse (D1 c f) where
+  gParse = trace "GParse (D1 c f)" $ fmap M1 gParse
+
+-- Sum types
+instance (GParse a, GParse b) => GParse (a :+: b) where
+  gParse = trace "GParse (a :+: b)" $  try (fmap L1 gParse <|> fmap R1 gParse)
+
+-- Product types
+instance (GParse f, GParse g) => GParse (f :*: g) where
+  gParse = trace "GParse (f :*: g)" $ (:*:) <$> gParse <*> gParse
+
 -- Nullary constructors
 instance GParse U1 where
-  gParse = return U1
+  gParse = trace "GParse U1" $ return U1
 
-integer :: Parser Integer
-integer = rd <$> (plus <|> minus <|> number)
+gparse :: (Generic g, GParse (Rep g)) => Parser g
+gparse = fmap to gParse
+
+class Parse a where
+  parse :: Parser a
+  default parse :: (Generic a, GParse (Rep a)) => Parser a
+  parse = gparse
+
+instance Parse Integer where
+  parse = trace "Parse Integer" $ rd <$> (plus <|> minus <|> number)
     where rd     = read :: String -> Integer
           plus   = char '+' *> number
           minus  = (:) <$> char '-' <*> number
           number = many1 digit
 
--- start guessing
-          
--- instance GParse (K1 R Integer) where
---   gParse = fmap K1 integer
-
--- instance GParse (K1 R String) where
---   gParse = fmap K1 (many1 letter)
-
-instance (Parse a) => GParse (K1 R a) where
-  gParse = fmap K1 parse
-  
---   gParse = id
---     Couldn't match type ‘a0 -> a0’
---                    with ‘Text.Parsec.Prim.ParsecT
---                            text-1.2.2.1:Data.Text.Internal.Lazy.Text
---                            ()
---                            Data.Functor.Identity.Identity
---                            (K1 R Exp a)’
---     Expected type: Parser (K1 R Exp a)
---       Actual type: a0 -> a0
---     Relevant bindings include
---       gParse :: Parser (K1 R Exp a) (bound at src/Generics.hs:71:3)
---     Probable cause: ‘id’ is applied to too few arguments
---     In the expression: id
---     In an equation for ‘gParse’: gParse = id
--- Failed, modules loaded: none.
-  
---gParse = fmap K1 gParse
---    Couldn't match type ‘f0 a0’ with ‘Exp’
---    Expected type: Text.Parsec.Prim.ParsecT
---                     text-1.2.2.1:Data.Text.Internal.Lazy.Text
---                     ()
---                     Data.Functor.Identity.Identity
---                     Exp
---      Actual type: Parser (f0 a0)
---    In the second argument of ‘fmap’, namely ‘gParse’
---    In the expression: fmap K1 gParse
-
-
--- gParse = fmap M1 gParse
---   Couldn't match type ‘M1 i0 c0 f0 p0’ with ‘K1 R Exp a’
---   Expected type: f0 p0 -> K1 R Exp a
---     Actual type: f0 p0 -> M1 i0 c0 f0 p0
---   Relevant bindings include
---     gParse :: Parser (K1 R Exp a) (bound at src/Generics.hs:71:3)
---   In the first argument of ‘fmap’, namely ‘M1’
---   In the expression: fmap M1 gParse
-
-instance (GParse f, Selector s) => GParse (M1 S s f) where
-  gParse = fmap M1 gParse
-  
--- stop guessing
-
--- Type synonym metadata for constructors
-instance (GParse f, Constructor c) => GParse (C1 c f) where
-  gParse =
-    let con = conName (undefined :: t c f a) in
-    (fmap M1 gParse) <* string con
-
--- Constructor names
-instance GParse f => GParse (D1 c f) where
-  gParse = fmap M1 gParse
-
--- Sum types
-instance (GParse a, GParse b) => GParse (a :+: b) where
-  gParse = try (fmap L1 gParse <|> fmap R1 gParse)
-
--- Product types
-instance (GParse f, GParse g) => GParse (f :*: g) where
-  gParse = (:*:) <$> gParse <*> gParse
+instance Parse String where
+   parse = trace "Parse String" $ many1 letter
 
 data Scientist
   = Newton
   | Einstein
   | Schrodinger
   | Feynman
-  deriving (Show, Generic)
+  deriving (Show, Generic, Parse)
 
 data Musician
   = Vivaldi
   | Bach
   | Mozart
   | Beethoven
-  deriving (Show, Generic)
-
-data ScientistAndMusician
-  = ScientistAndMusician Scientist Musician
-  deriving (Show, Generic)
+  deriving (Show, Generic, Parse)
 
 type Name = String
 
 data Exp 
   = Lit Integer
-  | Var String
+  | Var Name
   | Plus Exp Exp 
   | Abs Name Exp 
-  | App Exp Exp deriving (Show, Generic)
+  | App Exp Exp deriving (Show, Generic, Parse)
 
 {--
 *Main> :kind! Rep Exp
@@ -163,7 +143,7 @@ Rep Exp :: * -> *
 = D1
     Main.D1Exp
     ((C1 Main.C1_0Exp (S1 NoSelector (Rec0 Integer))
-      :+: C1 Main.C1_1Exp (S1 NoSelector (Rec0 String)))
+      :+: C1 Main.C1_1Exp (S1 NoSelector (Rec0 String)))A
      :+: (C1
             Main.C1_2Exp
             (S1 NoSelector (Rec0 Exp) :*: S1 NoSelector (Rec0 Exp))
@@ -175,25 +155,6 @@ Rep Exp :: * -> *
                      (S1 NoSelector (Rec0 Exp) :*: S1 NoSelector (Rec0 Exp)))))
 --}
 
-gparse :: (Generic g, GParse (Rep g)) => Parser g
-gparse = fmap to gParse
-
-class Parse a where
-  parse :: Parser a
-  default parse :: (Generic a, GParse (Rep a)) => Parser a
-  parse = gparse
-
-instance Parse Integer where
-   parse = integer
-
-instance Parse String where
-   parse = many1 letter
-
-instance Parse Exp
-
-instance Parse Scientist
-   
-instance Parse Musician
 
 scientist :: Parser Scientist
 scientist = parse

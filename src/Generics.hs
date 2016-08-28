@@ -6,9 +6,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DefaultSignatures #-}
-{--
-http://dev.stephendiehl.com/hask/#generic-parsing
---}
+
+--http://dev.stephendiehl.com/hask/#generic-parsing
 
 module Main where
 
@@ -54,7 +53,7 @@ gparse = fmap to gParse
 class Parse a where
   parse :: Parser a
   default parse :: (Generic a, GParse (Rep a)) => Parser a
-  parse = gparse
+  parse = spaces >> char '(' >> gparse >>= \e -> char ')' >> return e
 
 instance Parse Integer where
   parse = rd <$> (plus <|> minus <|> number)
@@ -66,22 +65,7 @@ instance Parse Integer where
 instance Parse String where
    parse = many1 letter
 
-data Scientist
-  = Newton
-  | Einstein
-  | Schrodinger
-  | Feynman
-  deriving (Show, Generic, Parse)
-
 type Name = String
-
-data Musician
-  = Vivaldi
-  | Bach
-  | Mozart
-  | Beethoven
-  | Musiker Name
-  deriving (Show, Generic, Parse)
 
 data Exp 
   = Lit Integer
@@ -90,28 +74,14 @@ data Exp
   | App Exp Exp 
   | Abs Name Exp deriving (Show, Generic, Parse)
 
-scientist :: Parser Scientist
-scientist = parse
-
-musician :: Parser Musician
-musician = parse
-
 expr :: Parser Exp
 expr = parse
-
-ip :: Parser Integer
-ip = parse
-
-sp :: Parser String
-sp = parse
 
 {--
 λ: :set -XOverloadedStrings
 λ: :m +Text.Parsec
-λ: parseTest musician "Bach"
-Bach
-λ: parseTest scientist "Newton"
-Newton
+λ: parseTest expr "(App (Plus (Lit 1) (Var n)) (App (Plus (Lit 5) (Lit 5)) (Plus (Lit 6) (Lit 6))))"
+App (Plus (Lit 1) (Var "n")) (App (Plus (Lit 5) (Lit 5)) (Plus (Lit 6) (Lit 6)))
 --}
 
 main :: IO ()

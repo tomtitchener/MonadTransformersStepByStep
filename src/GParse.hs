@@ -1,5 +1,4 @@
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -9,7 +8,7 @@
 
 --http://dev.stephendiehl.com/hask/#generic-parsing
 
-module Main where
+module GParse where
 
 import Text.Parsec            ((<|>), string, try, many1, digit, char, letter, spaces)
 import Text.Parsec.Text.Lazy  (Parser)
@@ -29,7 +28,7 @@ instance (GParse f, Selector s) => GParse (M1 S s f) where
 instance (GParse f, Constructor c) => GParse (C1 c f) where
   gParse =
     let con = conName (undefined :: t c f a) in
-      (spaces >> string con >> spaces) *> (fmap M1 gParse)  
+      (spaces >> string con >> spaces) *> fmap M1 gParse
 
 -- Constructor names
 instance (Datatype d, GParse f) => GParse (D1 d f) where
@@ -65,6 +64,8 @@ instance Parse Integer where
 instance Parse String where
    parse = many1 letter
 
+{--
+
 type Name = String
 
 data Exp 
@@ -77,12 +78,9 @@ data Exp
 expr :: Parser Exp
 expr = parse
 
-{--
 λ: :set -XOverloadedStrings
 λ: :m +Text.Parsec
 λ: parseTest expr "(App (Plus (Lit 1) (Var n)) (App (Plus (Lit 5) (Lit 5)) (Plus (Lit 6) (Lit 6))))"
 App (Plus (Lit 1) (Var "n")) (App (Plus (Lit 5) (Lit 5)) (Plus (Lit 6) (Lit 6)))
---}
 
-main :: IO ()
-main = undefined
+--}

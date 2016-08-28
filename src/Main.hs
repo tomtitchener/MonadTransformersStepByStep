@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {--
 Monad Transformers Step By Step, Martin Grabmuller,
   - https://page.mi.fu-berlin.de/scravy/realworldhaskell/materialien/monad-transformers-step-by-step.pdf
@@ -11,13 +13,16 @@ import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.Maybe
+import Data.Text.Lazy
 import qualified Data.Map as Map
+import GHC.Generics
+import GParse
 import System.Environment
 import Text.ParserCombinators.Parsec
 
 type Name = String
 
-data Exp = Lit Integer | Var Name | Plus Exp Exp | Abs Name Exp | App Exp Exp deriving (Show)
+data Exp = Lit Integer | Var Name | Plus Exp Exp | Abs Name Exp | App Exp Exp deriving (Show, Generic, Parse)
 
 type Env = Map.Map Name Value
 
@@ -51,35 +56,11 @@ eval (Var name)   = tick >> tell [name] >> ask >>= evalVar name
 eval (Plus e1 e2) = tick >> eval e1 >>= \v1-> eval e2 >>= \v2 -> evalPlus (v1, v2)
 eval (App e1 e2)  = tick >> eval e1 >>= \v1-> eval e2 >>= \v2 -> evalApp (v1, v2)
 
-parseLit :: GenParser Char st Exp
-parseLit = string "Lit" >> spaces >> many1 digit >>= \i -> return $ Lit (read i::Integer)
-
-parseVar :: GenParser Char st Exp
-parseVar = string "Var" >> spaces >> many1 letter >>= \name -> return $ Var name
-
-parsePlus :: GenParser Char st Exp
-parsePlus = string "Plus" >> spaces >> parseExp >>= \exp1 -> parseExp >>= \exp2 -> return $ Plus exp1 exp2
-
-parseAbs :: GenParser Char st Exp
-parseAbs = string "Abs" >> spaces >> many1 letter >>= \name -> parseExp >>= \exp -> return $ Abs name exp
-
-parseApp :: GenParser Char st Exp
-parseApp = string "App" >> spaces >> parseExp >>= \exp1 -> parseExp >>= \exp2 -> return $ App exp1 exp2
-
-parseBareExp :: GenParser Char st Exp
-parseBareExp = parseLit <|> parseVar <|> parsePlus <|> try parseAbs <|> parseApp
-
-parseParenthesizedExp :: GenParser Char st Exp
-parseParenthesizedExp = char '(' >> parseExp >>= \e -> char ')' >> return e
-
-parseExp :: GenParser Char st Exp
-parseExp = (spaces >> parseParenthesizedExp) <|> (spaces >> parseBareExp)
-
-parseExpStr :: String -> Exp
-parseExpStr str = either (error . show) id $ parse parseExp str str
+parseExpStr :: Text -> Exp
+parseExpStr str = either (error . show) id $ Text.ParserCombinators.Parsec.parse GParse.parse "parse" str
 
 main :: IO ()
-main = getArgs >>= mapM_ (print . runEval Map.empty 0 . eval . parseExpStr)
+main = getArgs >>= mapM_ (print . runEval Map.empty 0 . eval . parseExpStr . pack)
 
 {--
 bash-3.2$ MonadTransformersStepByStep "Plus (Lit 12) (App (Abs x (Var x)) (Plus (Lit 4) (Lit 2)))"
